@@ -1,125 +1,56 @@
-from fastapi import FastAPI, HTTPException, Path, Query, Body
+from fastapi import FastAPI, HTTPException, Path, Query, Body, Depends
 from typing import Optional, List, Dict, Annotated
-from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+
+from models import Base, User, Post
+from database import engine, session_local
+from schemas import UserCreate, User as DbUser, PostCreate, PostResponse
 
 app = FastAPI()
 
-class User(BaseModel):
-    id: int
-    name: str
-    age: int
+Base.metadata.create_all(bind=engine)
 
-class Post(BaseModel):
-    id: int
-    title: str
-    body: str
-    author: User
+def get_db():
+    db = session_local()
+    try: 
+        yield db
+    finally:
+        db.close()
 
-class PostCreate(BaseModel):
-    title: str
-    body: str
-    author_id: int
+@app.post('/users/', response_model=DbUser)
+async def create_user(user: UserCreate, db: Session = Depends(get_db)) -> DbUser:
+    db_user = User(name=user.name, age=user.age)
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
 
-class UserCreate(BaseModel):
-    name: Annotated[
-        str, Field(..., title='User name', min_length=2, max_length=20)
-    ]
-    age: Annotated[
-        int, Field(..., title='User age', ge=1, le=120)
-    ]
-
-@app.get('/')
-def home() -> dict[str, str]:
-    return {"data": "message"}
-
-@app.get('/contacts')
-def getContact() -> int:
-    return 222
+    return db_user
 
 
-users = [
-    {'id': 1, 'name': 'John', 'age': 30},
-    {'id': 2, 'name': 'Alex', 'age': 13},
-    {'id': 3, 'name': 'Bob', 'age': 21},
-]
-
-posts = [
-    {'id': 1, 'title': 'News 1', 'body': 'Text 1', 'author': users[1]},
-    {'id': 2, 'title': 'News 2', 'body': 'Text 2', 'author': users[0]},
-    {'id': 3, 'title': 'News 3', 'body': 'Text 3', 'author': users[2]}
-]
-
-@app.get('/users')
-async def getAllUsers() -> List[dict]:
-    return users
-
-@app.post('/items/add')
-async def addItem(post: PostCreate) -> Post:
-    author = next((user for user in users if user['id'] == post.author_id), None)
-    if not author:
+@app.post('/posts/', response_model=PostResponse)
+async def create_post(post: PostCreate, db: Session = Depends(get_db)) -> PostResponse:
+    db_user = db.query(User).filter(User.id == post.author_id).first()
+    if db_user is None:
         raise HTTPException(status_code=404, detail='User not found')
-    new_post_id = len(posts) + 1
 
-    new_post = {'id': new_post_id,
-        'title': post.title,
-        'body': post.body,
-        'author': author}
-    posts.append(new_post)
-    
-    return Post(**new_post)
+    db_post = Post(title=post.title, body=post.body, author_id=post.author_id)
+    db.add(db_post)
+    db.commit()
+    db.refresh(db_post)
 
-@app.post('/user/add')
-async def addUser(user: Annotated[
-    UserCreate,
-    Body(..., example={
-        'name': 'UserName',
-        'age': 1
-    })
-]) -> User:
-    new_user_id = len(users) + 1
+    return db_post
 
-    new_user = {
-        'id': new_user_id,
-        'name': user.name,
-        'age': user.age,
-    }
-
-    users.append(new_user)
-    return User(**new_user)
-
-@app.get('/posts/{id}')
-async def getPost(id: int) -> dict:
-    for post in posts:
-        if post['id'] == id:
-            return post
-        
-    raise HTTPException(status_code=404, detail='Post not found')
+@app.get('/posts/', response_model=List[PostResponse])
+async def get_all_posts(db: Session = Depends(get_db)):
+    return db.query(Post).all()
 
 
-@app.get('/items')
-async def getItems() -> List[Post]:
-    return [Post(**post) for post in posts]
-
-@app.get('/items/{id}')
-async def getItem(id: Annotated[int, Path(..., title='Id for user', ge=1, lt=100)]) -> Post:
-    for post in posts:
-        if post['id'] == id:
-            return Post(**post)
-        
-    raise HTTPException(status_code=404, detail='Not found')
+@app.delete('/posts/{id}')
+async def delete_post(id: int, db: Session = Depends(get_db)):
+    db.query(Post).filter(Post.id == id).delete()
+    db.commit()
 
 
-@app.get('/search')
-async def search(post_id: Annotated[
-    Optional[int],
-    Query(title='ID of post to search', ge=1, le=100)
-]) -> Dict[str, Optional[Post]]:
-    if post_id:
-        for post in posts:
-            if post['id'] == post_id:
-                return {'data' : Post(**post)}
-            
-        raise HTTPException(status_code=404, detail='Post not found')
-    else:
-        return {"data" : None}
-    
+
+
+
