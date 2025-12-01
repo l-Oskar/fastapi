@@ -1,17 +1,27 @@
 import { useEffect, useState } from "react";
-import AuthComponent from "./components/AuthComponent";
-import axios from "axios";
+import RegisterForm from "./components/RegisterForm";
+import LoginForm from "./components/LoginForm";
+import PostsForm from "./components/PostsForm";
 
 function App() {
   const [isAuth, setIsAuth] = useState(false);
-  const [data, setData] = useState([]);
+  const [user, setUser] = useState(null);
 
-  useEffect(() => {}, [isAuth, data]);
+  useEffect(() => {}, [isAuth]);
 
   return (
     <>
       <div className="container">
-        {isAuth ? <h1>Welcome</h1> : <AuthComponent />}
+        {isAuth ? (
+          <PostsForm user={user} />
+        ) : (
+          <>
+            <div className="form">
+              <RegisterForm setIsAuth={setIsAuth} setUser={setUser} />
+              <LoginForm setIsAuth={setIsAuth} setUser={setUser} />
+            </div>
+          </>
+        )}
       </div>
     </>
   );
